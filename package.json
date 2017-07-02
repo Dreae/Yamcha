@@ -1,0 +1,15 @@
+{
+  "name": "yamcha",
+  "version": "1.0.0",
+  "main": "yamcha-ui/index.ts",
+  "repository": "https://github.com/Dreae/yamcha",
+  "author": "Dreae <dreae@dreae.onl>",
+  "license": "MIT",
+  "dependencies": {
+    "@types/react": "^15.0.34",
+    "bulma": "^0.4.2",
+    "react": "^15.6.1",
+    "typescript": "^2.4.1",
+    "webpack": "^3.0.0"
+  }
+}
