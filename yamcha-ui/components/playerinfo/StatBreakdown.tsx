@@ -21,7 +21,7 @@ export default class StatBreakdown extends Component<any, any> {
             <nav className="level">
               <div className="level-item has-text-centered">
                 <div>
-                  <p className="heading">Points</p>
+                  <p className="heading">Rating</p>
                   <p className="title">3,456</p>
                 </div>
               </div>

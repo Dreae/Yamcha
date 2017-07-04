@@ -5,3 +5,7 @@ authors = ["Dreae <dreae@dreae.onl>"]
 
 [dependencies]
 mio = "0.6.9"
+lazy_static = "0.2.8"
+env_logger = "0.4.3"
+regex = "0.2.2"
+log = "0.3.8"

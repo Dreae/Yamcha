@@ -1,11 +1,14 @@
 use mio::net::UdpSocket;
 use mio::{Poll, Ready, PollOpt, Token, Events};
 use std::net::SocketAddr;
+use std::str;
+
+pub mod logparse;
 
 const SERVER: Token = Token(0);
 
 pub fn init() {
-  println!("Starting Yamcha Ingress");
+  info!("Starting Yamcha Ingress");
   let addr: SocketAddr = match "0.0.0.0:2000".parse() {
     Ok(socket) => socket,
     Err(_) => panic!("Couldn't parse socket address"),
@@ -27,9 +30,15 @@ pub fn init() {
           SERVER => {
             let mut bytes = [0u8; 1024];
             match server.recv_from(&mut bytes) {
-              Ok((num_read, _)) => {
-                println!("Read {} bytes", num_read);
-                println!("Log message {}", String::from_utf8_lossy(&bytes));
+              Ok(_) => {
+                match logparse::parse(&bytes) {
+                    Ok(msg) => println!("{:?}", msg),
+                    Err(reason) => {
+                      if reason != logparse::ParseError::RegexFail {
+                        warn!("Error parsing log message {:?}", reason);
+                      }
+                    },
+                };
               },
               Err(e) => {
                 println!("{}", e);
