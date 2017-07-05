@@ -1,7 +1,10 @@
 use mio::net::UdpSocket;
 use mio::{Poll, Ready, PollOpt, Token, Events};
 use std::net::SocketAddr;
+use std::io::ErrorKind;
 use std::str;
+
+use super::gamestate;
 
 pub mod logparse;
 
@@ -21,6 +24,7 @@ pub fn init() {
   poll.register(&server, SERVER, Ready::readable(), PollOpt::edge()).unwrap();
 
   let mut events = Events::with_capacity(1024);
+  let mut state = gamestate::GameState::new();
 
   loop {
     poll.poll(&mut events, None).unwrap();
@@ -29,21 +33,35 @@ pub fn init() {
       match event.token() {
           SERVER => {
             let mut bytes = [0u8; 1024];
-            match server.recv_from(&mut bytes) {
-              Ok(_) => {
-                match logparse::parse(&bytes) {
-                    Ok(msg) => println!("{:?}", msg),
-                    Err(reason) => {
-                      if reason != logparse::ParseError::RegexFail {
-                        warn!("Error parsing log message {:?}", reason);
-                      }
-                    },
-                };
-              },
-              Err(e) => {
-                println!("{}", e);
-              }
-            };
+            let mut buf = Vec::new();
+            loop {
+              match server.recv_from(&mut bytes) {
+                Ok((num_read, _)) => {
+                  buf.extend(bytes[0..num_read].iter());
+                },
+                Err(e) => {
+                  if e.kind() != ErrorKind::WouldBlock {
+                    error!("Socket err: {}", e);
+                  }
+                  break;
+                }
+              };
+            }
+            
+            for msg in buf.split(|b| *b == 0x00u8) {
+              match logparse::parse(&msg) {
+                Ok(msg) => {
+                  println!("{:?}", msg);
+                  state.process_log_msg(&msg);
+                },
+                Err(reason) => {
+                  debug!("Got parse fail {:?}", reason);
+                  if reason != logparse::ParseError::RegexFail && reason != logparse::ParseError::ByteBufferTooShort {
+                    warn!("Error parsing log message {:?}", reason);
+                  }
+                },
+              };
+            }
           },
           _ => unreachable!(),
       }

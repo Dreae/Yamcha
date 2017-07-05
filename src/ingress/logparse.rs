@@ -19,6 +19,8 @@ pub enum LogMessageType {
   HeadshotKill,
   PlayerKilled,
   KillAssist,
+  Connected,
+  Disconnected,
 }
 
 #[derive(Debug)]
@@ -30,15 +32,17 @@ pub struct Position {
 
 #[derive(Debug)]
 pub struct LogMessage<'a> {
-  msg_type: LogMessageType,
-  target: &'a str,
-  victim: &'a str,
-  weapon: Option<&'a str>,
-  target_pos: Option<Box<Position>>,
-  victim_pos: Option<Box<Position>>,
+  pub msg_type: LogMessageType,
+  pub target: &'a str,
+  pub target_uid: i32,
+  pub victim: Option<&'a str>,
+  pub victim_uid: Option<i32>,
+  pub weapon: Option<&'a str>,
+  pub target_pos: Option<Box<Position>>,
+  pub victim_pos: Option<Box<Position>>,
 }
 
-pub fn parse<'a>(bytes: &'a [u8]) -> ParseResult<'a> {
+pub fn parse<'a>(bytes: &'a [u8]) -> ParseResult<'a> {  
   if bytes.len() < 5 {
     return Err(ParseError::ByteBufferTooShort);
   }
@@ -66,8 +70,10 @@ pub fn parse<'a>(bytes: &'a [u8]) -> ParseResult<'a> {
   };
   
   lazy_static! {
-    static ref KILL_RE: Regex = Regex::new(r#""(?:.+<[0-9]+><([a-zA-Z0-9\-:_]+)><([A-Z]+)>)"\s*\[([0-9\-]+)\s*([0-9\-]+)\s*([0-9\-]+)\]\s*killed\s*"(?:.+<[0-9]+><([a-zA-Z0-9\-:_]+)><([A-Z]+)>)"\s*\[([0-9\-]+)\s*([0-9\-]+)\s*([0-9\-]+)\]\s*with\s*"([^"]+)"\s*(\(headshot\))?"#).unwrap();
-    static ref ASSIST_RE: Regex = Regex::new(r#""(?:.+<[0-9]+><([a-zA-Z0-9\-:_]+)><([A-Z]+)>)"\s*assisted\s*killing\s*"(?:.+<[0-9]+><([a-zA-Z0-9\-:_]+)><([A-Z]+)>)""#).unwrap();
+    static ref KILL_RE: Regex = Regex::new(r#""(?:.+<([0-9]+)><([a-zA-Z0-9\-:_]+)><([A-Z]+)>)"\s*\[([0-9\-]+)\s*([0-9\-]+)\s*([0-9\-]+)\]\s*killed\s*"(?:.+<([0-9]+)><([a-zA-Z0-9\-:_]+)><([A-Z]+)>)"\s*\[([0-9\-]+)\s*([0-9\-]+)\s*([0-9\-]+)\]\s*with\s*"([^"]+)"\s*(\(headshot\))?"#).unwrap();
+    static ref ASSIST_RE: Regex = Regex::new(r#""(?:.+<([0-9]+)><([a-zA-Z0-9\-:_]+)><([A-Z]+)>)"\s*assisted\s*killing\s*"(?:.+<([0-9]+)><([a-zA-Z0-9\-:_]+)><([A-Z]+)>)""#).unwrap();
+    static ref DISCONNECT_RE: Regex = Regex::new(r#""(?:.+<([0-9]+)><([a-zA-Z0-9\-:_]+)><([A-Z]+)>)"\s*disconnected"#).unwrap();
+    static ref CONNECT_RE: Regex = Regex::new(r#""(?:.+<([0-9]+)><([a-zA-Z0-9\-:_]+)><([A-Z]*)>)"\s*entered the game"#).unwrap();
   }
 
   match KILL_RE.captures(msg) {
@@ -78,39 +84,86 @@ pub fn parse<'a>(bytes: &'a [u8]) -> ParseResult<'a> {
       Some(m) => parse_assist_msg(&m),
       None => Err(ParseError::RegexFail)
     }
+  }).or_else(|_| {
+    match CONNECT_RE.captures(msg) {
+      Some(m) => parse_connected(&m, LogMessageType::Connected),
+      None => Err(ParseError::RegexFail)
+    }
+  }).or_else(|_| {
+    match DISCONNECT_RE.captures(msg) {
+      Some(m) => parse_connected(&m, LogMessageType::Disconnected),
+      None => Err(ParseError::RegexFail)
+    }
   })
 }
 
 fn parse_kill_msg<'a>(m: &Captures<'a>) -> ParseResult<'a> {
-  let msg_type = if let Some(_) = m.get(12) {
+  let msg_type = if let Some(_) = m.get(14) {
     LogMessageType::HeadshotKill
   } else {
     LogMessageType::PlayerKilled
   };
+  
+  let target_uid = m.get(1).map_or("-1", |g| g.as_str()).parse::<i32>().unwrap_or(-1);
+  let victim_uid = m.get(7).map_or("-1", |g| g.as_str()).parse::<i32>().unwrap_or(-1);
+
+  if target_uid == -1 || victim_uid == -1 {
+    return Err(ParseError::RegexFail);
+  }
 
   Ok(LogMessage {
     msg_type: msg_type,
-    target: m.get(1).map_or("", |g| g.as_str()),
-    victim: m.get(6).map_or("", |g| g.as_str()),
-    weapon: m.get(11).map(|g| g.as_str()),
+    target: m.get(2).map_or("", |g| g.as_str()),
+    target_uid: target_uid,
+    victim: Some(m.get(8).map_or("", |g| g.as_str())),
+    victim_uid: Some(victim_uid),
+    weapon: m.get(13).map(|g| g.as_str()),
     target_pos: Some(Box::new(Position{
-      x: m.get(3).map_or("0", |g| g.as_str()).parse::<i32>().unwrap_or(0),
-      y: m.get(4).map_or("0", |g| g.as_str()).parse::<i32>().unwrap_or(0),
-      z: m.get(5).map_or("0", |g| g.as_str()).parse::<i32>().unwrap_or(0),
+      x: m.get(4).map_or("0", |g| g.as_str()).parse::<i32>().unwrap_or(0),
+      y: m.get(5).map_or("0", |g| g.as_str()).parse::<i32>().unwrap_or(0),
+      z: m.get(6).map_or("0", |g| g.as_str()).parse::<i32>().unwrap_or(0),
     })),
     victim_pos: Some(Box::new(Position{
-      x: m.get(8).map_or("0", |g| g.as_str()).parse::<i32>().unwrap_or(0),
-      y: m.get(9).map_or("0", |g| g.as_str()).parse::<i32>().unwrap_or(0),
-      z: m.get(10).map_or("0", |g| g.as_str()).parse::<i32>().unwrap_or(0),
+      x: m.get(10).map_or("0", |g| g.as_str()).parse::<i32>().unwrap_or(0),
+      y: m.get(11).map_or("0", |g| g.as_str()).parse::<i32>().unwrap_or(0),
+      z: m.get(12).map_or("0", |g| g.as_str()).parse::<i32>().unwrap_or(0),
     })),
   })
 }
 
 fn parse_assist_msg<'a>(m: &Captures<'a>) -> ParseResult<'a> {
+  let target_uid = m.get(1).map_or("-1", |g| g.as_str()).parse::<i32>().unwrap_or(-1);
+  let victim_uid = m.get(4).map_or("-1", |g| g.as_str()).parse::<i32>().unwrap_or(-1);
+
+  if target_uid == -1 || victim_uid == -1 {
+    return Err(ParseError::RegexFail);
+  }
+
   Ok(LogMessage {
     msg_type: LogMessageType::KillAssist,
-    target: m.get(1).map_or("", |g| g.as_str()),
-    victim: m.get(3).map_or("", |g| g.as_str()),
+    target: m.get(2).map_or("", |g| g.as_str()),
+    target_uid: target_uid,
+    victim: Some(m.get(5).map_or("", |g| g.as_str())),
+    victim_uid: Some(victim_uid),
+    weapon: None,
+    target_pos: None,
+    victim_pos: None,
+  })
+}
+
+fn parse_connected<'a>(m: &Captures<'a>, msg_type: LogMessageType) -> ParseResult<'a> {
+  let target_uid = m.get(1).map_or("-1", |g| g.as_str()).parse::<i32>().unwrap_or(-1);
+
+  if target_uid == -1 {
+    return Err(ParseError::RegexFail);
+  }
+
+  Ok(LogMessage {
+    msg_type: msg_type,
+    target: m.get(2).map_or("", |g| g.as_str()),
+    target_uid: target_uid,
+    victim: None,
+    victim_uid: None,
     weapon: None,
     target_pos: None,
     victim_pos: None,

@@ -2,31 +2,16 @@ use std::collections::HashMap;
 
 use super::ingress;
 
-pub enum PlayerTeam {
-  CT,
-  T
-}
-
-impl PlayerTeam {
-  pub fn as_str(&self) -> &str {
-    match self {
-      &PlayerTeam::CT => "CT",
-      &PlayerTeam::T => "TERRORIST"
-    }
-  }
-}
-
 pub struct ConnectedPlayer {
   rating: i32,
   kills: u32,
   deaths: u32,
   streak: u32,
   steamid: String,
-  team: PlayerTeam,
 }
 
 pub struct GameState {
-  players: HashMap<String, ConnectedPlayer>,
+  players: HashMap<i32, ConnectedPlayer>,
 }
 
 impl GameState {
@@ -36,8 +21,91 @@ impl GameState {
     }
   }
 
-  pub fn process_log_msg(msg: &ingress::logparse::LogMessage) {
+  pub fn process_log_msg(&mut self, msg: &ingress::logparse::LogMessage) {
+    match msg.msg_type {
+      ingress::logparse::LogMessageType::PlayerKilled => {
+        self.player_killed(msg, false);
+      },
+      ingress::logparse::LogMessageType::HeadshotKill => {
+        self.player_killed(msg, true);
+      },
+      ingress::logparse::LogMessageType::KillAssist => {
+        self.kill_assist(msg);
+      },
+      ingress::logparse::LogMessageType::Connected => {
+        self.player_connected(msg);
+      },
+      ingress::logparse::LogMessageType::Disconnected => {
+        self.player_disconnected(msg);
+      }
+    }
+  }
 
+  pub fn player_killed(&mut self, msg: &ingress::logparse::LogMessage, headshot: bool) {
+    let (new_killer_rating, new_victim_rating) = {
+      let killer = self.players.get(&msg.target_uid);
+      let victim = self.players.get(&msg.victim_uid.unwrap());
+
+      if killer.is_none() {
+        warn!("Killer unconnected, ignoring log message");
+        return;
+      }
+
+      if victim.is_none() {
+        warn!("Victim unconnected, ignoring log message");
+      }
+
+      let killer = killer.unwrap();
+      let victim = victim.unwrap();
+
+      calculate_elo(killer.rating, victim.rating)
+    };
+
+    debug!("New ratings for ({},{}) are ({},{})", msg.target, msg.victim.unwrap(), new_killer_rating, new_victim_rating);
+
+    {
+      let mut killer = self.players.get_mut(&msg.target_uid).unwrap();
+
+      killer.rating = new_killer_rating + if headshot { 1 } else { 0 };
+      killer.streak += 1;
+      killer.kills += 1;
+    }
+
+    {
+      let mut victim = self.players.get_mut(&msg.victim_uid.unwrap()).unwrap();
+
+      victim.rating = new_victim_rating;
+      victim.streak = 0;
+      victim.deaths += 1;
+    }
+
+  }
+
+  pub fn kill_assist(&mut self, msg: &ingress::logparse::LogMessage) {
+    let killer = self.players.get_mut(&msg.target_uid);
+
+    if killer.is_none() {
+      warn!("Killer unconnected, ignoring log message");
+      return;
+    }
+    
+    killer.unwrap().rating += 1;
+  }
+
+  pub fn player_connected(&mut self, msg: &ingress::logparse::LogMessage) {
+    debug!("New player {} connected to uid {}", msg.target, msg.target_uid);
+    self.players.insert(msg.target_uid, ConnectedPlayer {
+      rating: 1000,
+      kills: 0,
+      deaths: 0,
+      streak: 0,
+      steamid: msg.target.to_owned(),
+    });
+  }
+
+  pub fn player_disconnected(&mut self, msg: &ingress::logparse::LogMessage) {
+    debug!("Player {} disconnected from uid {}", msg.target, msg.target_uid);
+    self.players.remove(&msg.target_uid);
   }
 }
 
