@@ -3,6 +3,7 @@ use mio::{Poll, Ready, PollOpt, Token, Events};
 use std::net::SocketAddr;
 use std::io::ErrorKind;
 use std::str;
+use std::mem;
 
 use super::gamestate;
 
@@ -32,7 +33,10 @@ pub fn init() {
     for event in events.iter() {
       match event.token() {
           SERVER => {
-            let mut bytes = [0u8; 1024];
+            let mut bytes: [u8; 1024] = unsafe {
+              mem::uninitialized()
+            };
+
             let mut buf = Vec::new();
             loop {
               match server.recv_from(&mut bytes) {
@@ -51,7 +55,7 @@ pub fn init() {
             for msg in buf.split(|b| *b == 0x00u8) {
               match logparse::parse(&msg) {
                 Ok(msg) => {
-                  println!("{:?}", msg);
+                  debug!("{:?}", msg);
                   state.process_log_msg(&msg);
                 },
                 Err(reason) => {
