@@ -4,7 +4,7 @@ use std::sync::RwLock;
 use super::GameState;
 
 pub struct Servers {
-  servers: HashMap<u32, RwLock<GameState>>,
+  pub servers: HashMap<u32, RwLock<GameState>>,
 }
 
 impl Servers {

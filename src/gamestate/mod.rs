@@ -17,7 +17,7 @@ pub struct ConnectedPlayer {
 }
 
 pub struct GameState {
-  players: HashMap<i32, ConnectedPlayer>,
+  pub players: HashMap<i32, ConnectedPlayer>,
 }
 
 impl GameState {

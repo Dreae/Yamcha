@@ -16,21 +16,14 @@ use std::sync::RwLock;
 #[macro_use] mod macros;
 mod ingress;
 mod gamestate;
+mod api;
 
 use gamestate::servers::Servers;
-use rocket_contrib::JSON;
 
 use std::thread;
 
 lazy_static! {
     pub static ref SERVERS: RwLock<Servers> = RwLock::new(Servers::new());
-}
-
-#[get("/server/<server_id>/player/<uid>")]
-fn hello(server_id: u32, uid: i32) -> Option<JSON<gamestate::ConnectedPlayer>> {
-    let servers = get_read_lock!(SERVERS);
-
-    servers.get_server_state(server_id).and_then(|server| get_read_lock!(server).get_player(uid)).and_then(|p| Some(JSON(p)))
 }
 
 fn main() {
@@ -43,5 +36,9 @@ fn main() {
     });
     
     info!("Starting web client");
-    rocket::ignite().mount("/", routes![hello]).launch();
+    rocket::ignite().mount("/api", routes![
+        api::public::get_servers,
+        api::public::get_server_details,
+        api::public::get_server_active_player,
+    ]).launch();
 }
