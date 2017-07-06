@@ -6,6 +6,13 @@ authors = ["Dreae <dreae@dreae.onl>"]
 [dependencies]
 mio = "0.6.9"
 lazy_static = "0.2.8"
+serde = "0.9"
+serde_derive = "0.9"
+serde_json = "0.9"
 env_logger = "0.4.3"
 regex = "0.2.2"
 log = "0.3.8"
+
+rocket = "0.2.8"
+rocket_codegen = "0.2.8"
+rocket_contrib = "0.2.8"

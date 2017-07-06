@@ -1,24 +1,29 @@
 use std::collections::HashMap;
-use std::sync::{Mutex, MutexGuard};
 
 use super::ingress;
 
+pub mod servers;
+
+#[derive(Serialize, Clone)]
 pub struct ConnectedPlayer {
   rating: i32,
   kills: u32,
   deaths: u32,
   streak: u32,
+  headshots: u32,
+  assists: u32,
+  accuracy: f32,
   steamid: String,
 }
 
 pub struct GameState {
-  players: Mutex<HashMap<i32, ConnectedPlayer>>,
+  players: HashMap<i32, ConnectedPlayer>,
 }
 
 impl GameState {
   pub fn new() -> GameState {
     GameState {
-      players: Mutex::new(HashMap::new()),
+      players: HashMap::new(),
     }
   }
 
@@ -42,23 +47,10 @@ impl GameState {
     }
   }
 
-  #[inline(always)]
-  pub fn get_player_guard(&mut self) -> MutexGuard<HashMap<i32, ConnectedPlayer>> {
-    match self.players.lock() {
-      Ok(guard) => guard,
-      Err(poisoned) => {
-        warn!("Player locke poisoned");
-        poisoned.into_inner()
-      },
-    }
-  }
-
-  pub fn player_killed(&mut self, msg: &ingress::logparse::LogMessage, headshot: bool) {
-    let mut players = &mut *self.get_player_guard();
-    
+  pub fn player_killed(&mut self, msg: &ingress::logparse::LogMessage, headshot: bool) {    
     let (new_killer_rating, new_victim_rating) = {
-      let killer = players.get(&msg.target_uid);
-      let victim = players.get(&msg.victim_uid.unwrap());
+      let killer = self.players.get(&msg.target_uid);
+      let victim = self.players.get(&msg.victim_uid.unwrap());
 
       if killer.is_none() {
         warn!("Killer unconnected, ignoring log message");
@@ -79,15 +71,18 @@ impl GameState {
     debug!("New ratings for ({},{}) are ({},{})", msg.target, msg.victim.unwrap(), new_killer_rating, new_victim_rating);
 
     {
-      let mut killer = players.get_mut(&msg.target_uid).unwrap();
+      let mut killer = self.players.get_mut(&msg.target_uid).unwrap();
 
       killer.rating = new_killer_rating + if headshot { 1 } else { 0 };
       killer.streak += 1;
       killer.kills += 1;
+      if headshot {
+        killer.headshots += 1;
+      }
     }
 
     {
-      let mut victim = players.get_mut(&msg.victim_uid.unwrap()).unwrap();
+      let mut victim = self.players.get_mut(&msg.victim_uid.unwrap()).unwrap();
 
       victim.rating = new_victim_rating;
       victim.streak = 0;
@@ -97,34 +92,39 @@ impl GameState {
   }
 
   pub fn kill_assist(&mut self, msg: &ingress::logparse::LogMessage) {
-    let mut players = &mut *self.get_player_guard();
-    let killer = players.get_mut(&msg.target_uid);
+    let killer = self.players.get_mut(&msg.target_uid);
 
     if killer.is_none() {
       warn!("Killer unconnected, ignoring log message");
       return;
     }
-    
-    killer.unwrap().rating += 1;
+    let mut killer = killer.unwrap();
+    killer.rating += 1;
+    killer.assists += 1;
   }
 
   pub fn player_connected(&mut self, msg: &ingress::logparse::LogMessage) {
     debug!("New player {} connected to uid {}", msg.target, msg.target_uid);
     
-    let mut players = &mut *self.get_player_guard();
-    players.insert(msg.target_uid, ConnectedPlayer {
+    self.players.insert(msg.target_uid, ConnectedPlayer {
       rating: 1000,
       kills: 0,
       deaths: 0,
       streak: 0,
+      headshots: 0,
+      assists: 0,
+      accuracy: 0.0,
       steamid: msg.target.to_owned(),
     });
   }
 
   pub fn player_disconnected(&mut self, msg: &ingress::logparse::LogMessage) {
     debug!("Player {} disconnected from uid {}", msg.target, msg.target_uid);
-    let mut players = &mut *self.get_player_guard();
-    players.remove(&msg.target_uid);
+    self.players.remove(&msg.target_uid);
+  }
+
+  pub fn get_player(&self, uid: i32) -> Option<ConnectedPlayer> {
+    self.players.get(&uid).and_then(|p| Some(p.clone()))
   }
 }
 

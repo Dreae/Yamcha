@@ -5,9 +5,9 @@ use std::io::ErrorKind;
 use std::str;
 use std::mem;
 
-use super::gamestate;
-
 pub mod logparse;
+
+use super::SERVERS;
 
 const SERVER: Token = Token(0);
 
@@ -25,7 +25,6 @@ pub fn init() {
   poll.register(&server, SERVER, Ready::readable(), PollOpt::edge()).unwrap();
 
   let mut events = Events::with_capacity(1024);
-  let mut state = gamestate::GameState::new();
 
   loop {
     poll.poll(&mut events, None).unwrap();
@@ -56,7 +55,8 @@ pub fn init() {
               match logparse::parse(&msg) {
                 Ok(msg) => {
                   debug!("{:?}", msg);
-                  state.process_log_msg(&msg);
+                  // TODO: Improve locking granularity
+                  get_read_lock!(SERVERS).get_server_state(msg.server_id).map(|s| get_write_lock!(s).process_log_msg(&msg));
                 },
                 Err(reason) => {
                   debug!("Got parse fail {:?}", reason);
