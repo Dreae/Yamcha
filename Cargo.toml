@@ -16,3 +16,6 @@ log = "0.3.8"
 rocket = "0.2.8"
 rocket_codegen = "0.2.8"
 rocket_contrib = "0.2.8"
+
+[dependencies.yamcha-macros]
+path = "./src/macros"

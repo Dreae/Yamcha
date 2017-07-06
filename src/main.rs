@@ -4,6 +4,7 @@
 #[macro_use] extern crate lazy_static;
 #[macro_use] extern crate log;
 #[macro_use] extern crate serde_derive;
+#[macro_use] extern crate yamcha_macros;
 
 extern crate mio;
 extern crate regex;
@@ -13,7 +14,6 @@ extern crate rocket_contrib;
 
 use std::sync::RwLock;
 
-#[macro_use] mod macros;
 mod ingress;
 mod gamestate;
 mod api;

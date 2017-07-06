@@ -1,0 +1,14 @@
+[package]
+name = "yamcha-rcon"
+version = "0.1.0"
+authors = ["Dreae <dreae@dreae.onl>"]
+
+[dependencies]
+mio = "0.6.9"
+lazy_static = "0.2.8"
+log = "0.3.8"
+futures = "0.1.14"
+byteorder = "1.0.0"
+
+[dependencies.yamcha-macros]
+path = "../macros"
