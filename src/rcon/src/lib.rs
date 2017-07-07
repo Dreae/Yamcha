@@ -8,6 +8,7 @@ extern crate byteorder;
 
 use mio::{Poll, Events, Ready, PollOpt};
 use std::sync::{RwLock, Arc};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::collections::HashMap;
 use std::io::{ErrorKind, Read};
 use std::thread;
@@ -21,14 +22,15 @@ use connection::Connection;
 
 lazy_static! {
     static ref POLL: Poll = Poll::new().unwrap();
-    static ref CONNECTIONS: RwLock<HashMap<Token, Arc<RwLock<Connection>>>> = RwLock::new(HashMap::new());
+    static ref CONNECTIONS: RwLock<HashMap<Token, Arc<Connection>>> = RwLock::new(HashMap::new());
+    static ref SHUTDOWN: AtomicBool = AtomicBool::new(false);
 }
 
 pub fn init() {
     thread::spawn(move || {
         let mut events = Events::with_capacity(1024);
 
-        loop {
+        while !SHUTDOWN.load(Ordering::SeqCst) {
             POLL.poll(&mut events, None).unwrap();
             
             for event in events.iter() {
@@ -38,11 +40,10 @@ pub fn init() {
                     let readiness = event.readiness();
 
                     if readiness.is_readable() {
-                        read_conn_stream(conn);
+                        read_conn_stream(conn.clone());
                     }
 
                     if readiness.is_writable() {
-                        let mut conn = get_write_lock!(conn);
                         conn.writable();
                     }
                 });
@@ -51,17 +52,20 @@ pub fn init() {
     });
 }
 
+pub fn shutdown() {
+    SHUTDOWN.swap(true, Ordering::Relaxed);
+}
+
 #[inline(always)]
-fn read_conn_stream(conn: &Arc<RwLock<Connection>>) {
-    let mut conn = get_write_lock!(conn);
+fn read_conn_stream(conn: Arc<Connection>) {
     let mut bytes: [u8; 1024] = unsafe {
         mem::uninitialized()
     };
 
     let mut buf = Vec::new();
     loop {
-        match conn.stream.read(&mut bytes) {
-            Ok(num_read) => buf.extend(bytes[0..num_read].iter()),
+        match lock!(conn.stream).read(&mut bytes) {
+            Ok(num_read) => buf.push(bytes[0..num_read].to_vec()),
             Err(e) => {
                 if e.kind() != ErrorKind::WouldBlock {
                     conn.handle_stream_error(e);
@@ -75,14 +79,17 @@ fn read_conn_stream(conn: &Arc<RwLock<Connection>>) {
     conn.read_notify(buf);
 }
 
-fn register(conn: Arc<RwLock<Connection>>) {
+fn register(mut conn: Connection) -> Arc<Connection> {
     let token = {
-        let conn = get_read_lock!(conn);
-        POLL.register(&conn.stream, conn.token, Ready::readable() | Ready::writable(), PollOpt::edge()).unwrap();
+        POLL.register(conn.stream.get_mut().unwrap(), conn.token, Ready::readable() | Ready::writable(), PollOpt::edge()).unwrap();
         
         conn.token
     };
 
+    let conn = Arc::new(conn);
+
     let mut connections = get_write_lock!(CONNECTIONS);
-    connections.insert(token, conn);
+    connections.insert(token, conn.clone());
+
+    conn
 }

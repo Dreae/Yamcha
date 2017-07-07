@@ -4,7 +4,9 @@ version = "0.1.0"
 authors = ["Dreae <dreae@dreae.onl>"]
 
 [dependencies]
-
+futures = "0.1.14"
+env_logger = "0.4.3"
+getopts = "0.2.14"
 
 [dependencies.yamcha-rcon]
 path = "../"

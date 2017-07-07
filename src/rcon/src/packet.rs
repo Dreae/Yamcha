@@ -1,5 +1,6 @@
-use byteorder::{LittleEndian, WriteBytesExt};
+use byteorder::{LittleEndian, WriteBytesExt, ReadBytesExt};
 
+#[derive(PartialEq)]
 pub enum PacketType {
     Auth,
     AuthResponse,
@@ -46,17 +47,16 @@ pub fn build_packet(packet_type: PacketType, packet_id: i32, body: &str) -> Vec<
 }
 
 #[inline(always)]
-pub fn parse_packet(packet: &[u8]) -> Option<(i32, String)> {
-    let packet = trim_nulls(packet);
-    
-    unimplemented!()
-}
-
-#[inline(always)]
-fn trim_nulls(buf: &[u8]) -> &[u8] {
-    if let Some(first) = buf.iter().position(|b| b == 0u8) {
-        buf[first..buf.iter().rposition(|b| b != 0u8) + 1]
-    } else {
-        &[]
+pub fn parse_packet(mut packet: &[u8]) -> Option<(i32, PacketType, String)> {
+    if packet.len() < 14 {
+        return None;
     }
+
+    let packet_len = packet.read_i32::<LittleEndian>().unwrap();
+    let packet_id = packet.read_i32::<LittleEndian>().unwrap();
+    let packet_type = packet.read_i32::<LittleEndian>().unwrap();
+    
+    let body = String::from_utf8_lossy(&packet[0..packet_len as usize - 10]);
+    
+    Some((packet_id, PacketType::from_i32(packet_type, true), (*body).to_owned()))
 }

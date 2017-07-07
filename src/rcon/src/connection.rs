@@ -3,8 +3,8 @@ use mio::net::TcpStream;
 use std::io::{Error, ErrorKind, Write};
 use std::collections::{VecDeque, HashMap};
 use futures::{Future, Async, future};
-use std::sync::{Arc, RwLock};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, RwLock, Mutex};
+use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
 use std::net::{SocketAddr, AddrParseError};
 
 use packet::{self, PacketType};
@@ -15,23 +15,21 @@ lazy_static! {
 
 pub struct Connection {
     pub token: Token,
-    pub stream: TcpStream,
-    writable: bool,
-    packet_queue: VecDeque<Vec<u8>>,
+    pub stream: Mutex<TcpStream>,
+    writable: AtomicBool,
+    packet_queue: RwLock<VecDeque<Vec<u8>>>,
     response_map: Arc<RwLock<HashMap<i32, String>>>,
-    packet_id: i32,
+    packet_id: AtomicUsize,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum RconError {
     SocketError(ErrorKind),
     ParseFail(AddrParseError),
 }
 
-type RconResult = Result<String, RconError>;
-
 impl Connection {
-    pub fn new(addr: &str, password: &str) -> Result<Arc<RwLock<Connection>>, RconError> {
+    pub fn new(addr: &str, password: &str) -> Result<Arc<Connection>, RconError> {
         let address: SocketAddr = match addr.parse() {
             Ok(address) => address,
             Err(parse_error) => {
@@ -49,75 +47,80 @@ impl Connection {
         let mut packet_queue = VecDeque::new();
         packet_queue.push_back(packet::build_packet(PacketType::Auth, 1, password));
 
-        let connection = Arc::new(RwLock::new(Connection {
-            token: Token(TOKEN.fetch_add(1, Ordering::SeqCst)),
-            stream: stream,
-            packet_id: 2,
-            packet_queue: packet_queue,
+        let connection = Connection {
+            token: Token(TOKEN.fetch_add(1, Ordering::Relaxed)),
+            stream: Mutex::new(stream),
+            packet_id: AtomicUsize::new(2),
+            packet_queue: RwLock::new(packet_queue),
             response_map: Arc::new(RwLock::new(HashMap::new())),
-            writable: false,
-        }));
+            writable: AtomicBool::new(false),
+        };
 
-        super::register(connection.clone());
-
-        Ok(connection)
+        Ok(super::register(connection))
     }
 
-    pub fn read_notify(&mut self, buf: Vec<u8>) {
-        if buf.len() < 10 {
-            warn!("Read notify was given a buffer that was too short");
-        }
-        for msg in buf.split(|b| *b == 0x00u8) {
+    pub fn read_notify(&self, buf: Vec<Vec<u8>>) {
+        for msg in buf.iter() {
             match packet::parse_packet(msg) {
-                Some((packet_id, response)) => {
-                    get_write_lock!(self.response_map).insert(packet_id, response);
+                Some((packet_id, packet_type, response)) => {
+                    if packet_type == PacketType::ResponseValue {
+                        get_write_lock!(self.response_map).insert(packet_id, response);
+                        debug!("Inserted response to packet {}", packet_id);
+                    }
                 },
                 None => warn!("Possible junk data in stream"),
             }
         }
     }
 
-    pub fn handle_stream_error(&mut self, e: Error) {
+    pub fn handle_stream_error(&self, e: Error) {
         if e.kind() != ErrorKind::WouldBlock {
             error!("Stream error {:?}", e)
         }
 
         if e.kind() != ErrorKind::Interrupted {
-            self.writable = false;
+            self.writable.swap(false, Ordering::Relaxed);
         }
     }
 
-    pub fn writable(&mut self) {
-        self.writable = true;
+    pub fn writable(&self) {
+        self.writable.swap(true, Ordering::SeqCst);
         self.pump_queue();
     }
 
-    pub fn notify_cmd(&mut self, cmd: &str) {
-        let packet_id = self.next_packet_id();
-        self.packet_queue.push_back(packet::build_packet(PacketType::ExecCommand, packet_id, cmd));
+    pub fn notify_cmd(&self, cmd: &str) {
+        get_write_lock!(self.packet_queue).push_back(packet::build_packet(PacketType::ExecCommand, 1, cmd));
     }
 
-    pub fn send_cmd(&mut self, cmd: &str) -> Box<Future<Item=String, Error=RconError>> {
+    // TODO: Different futures
+    pub fn send_cmd(&self, cmd: &str) -> Box<Future<Item=String, Error=RconError>> {
         let packet_id = self.next_packet_id();
-        self.packet_queue.push_back(packet::build_packet(PacketType::ExecCommand, packet_id, cmd));
+        get_write_lock!(self.packet_queue).push_back(packet::build_packet(PacketType::ExecCommand, packet_id, cmd));
         
         let response_map = self.response_map.clone();
         Box::new(future::poll_fn(move || {
-            match get_read_lock!(response_map).get(&packet_id) {
-                Some(result) => Ok(Async::Ready(result.clone())),
-                None => Ok(Async::NotReady)
+            debug!("Checking for response to {}", packet_id);
+            match get_write_lock!(response_map).remove(&packet_id) {
+                Some(result) => {
+                    Ok(Async::Ready(result.clone()))
+                }
+                None => {
+                    debug!("No response to packet {} stored", packet_id);
+                    Ok(Async::NotReady)
+                }
             }
         }))
     }
 
-    fn pump_queue(&mut self) {
-        if !self.packet_queue.is_empty() {
-            while self.writable {
-                if let Some(packet) = self.packet_queue.pop_front() {
-                    match self.stream.write(&packet) {
+    fn pump_queue(&self) {
+        let mut queue = get_write_lock!(self.packet_queue);
+        if !queue.is_empty() {
+            while self.writable.load(Ordering::Acquire) {
+                if let Some(packet) = queue.pop_front() {
+                    match lock!(self.stream).write(&packet) {
                         Ok(num_written) => {
                             if num_written < packet.len() {
-                                self.packet_queue.push_front(packet[num_written..].to_owned())
+                                queue.push_front(packet[num_written..].to_owned())
                             }
                         },
                         Err(e) => {
@@ -131,10 +134,7 @@ impl Connection {
         }
     }
 
-    fn next_packet_id(&mut self) -> i32 {
-        let packet_id = self.packet_id;
-        self.packet_id = self.packet_id.checked_add(1).unwrap_or(1);
-
-        packet_id
+    fn next_packet_id(&self) -> i32 {
+        self.packet_id.fetch_add(1, Ordering::Relaxed) as i32
     }
 }

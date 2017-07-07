@@ -24,3 +24,10 @@ macro_rules! get_write_lock {
         get_lock!($l, write)
     }
 }
+
+#[macro_export]
+macro_rules! lock {
+    ($l:expr) => {
+        get_lock!($l, lock)
+    }
+}
