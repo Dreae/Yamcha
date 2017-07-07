@@ -1,5 +1,4 @@
 extern crate mio;
-extern crate futures;
 extern crate byteorder;
 
 #[macro_use] extern crate log;

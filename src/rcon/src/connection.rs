@@ -2,10 +2,10 @@ use mio::Token;
 use mio::net::TcpStream;
 use std::io::{Error, ErrorKind, Write};
 use std::collections::{VecDeque, HashMap};
-use futures::{Future, Async, future};
 use std::sync::{Arc, RwLock, Mutex};
 use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
 use std::net::{SocketAddr, AddrParseError};
+use std::thread;
 
 use packet::{self, PacketType};
 
@@ -13,12 +13,14 @@ lazy_static! {
     static ref TOKEN: AtomicUsize = AtomicUsize::new(0);
 }
 
+pub type RconResult = Result<String, RconError>;
+
 pub struct Connection {
     pub token: Token,
     pub stream: Mutex<TcpStream>,
     writable: AtomicBool,
     packet_queue: RwLock<VecDeque<Vec<u8>>>,
-    response_map: Arc<RwLock<HashMap<i32, String>>>,
+    callback_map: Arc<RwLock<HashMap<i32, Box<FnMut(RconResult) + Send + Sync>>>>,
     packet_id: AtomicUsize,
 }
 
@@ -26,6 +28,11 @@ pub struct Connection {
 pub enum RconError {
     SocketError(ErrorKind),
     ParseFail(AddrParseError),
+    Invalid,
+}
+
+struct CallbackResult {
+    inner: RconResult,
 }
 
 impl Connection {
@@ -53,7 +60,7 @@ impl Connection {
             stream: Mutex::new(stream),
             packet_id: AtomicUsize::new(2),
             packet_queue: RwLock::new(packet_queue),
-            response_map: Arc::new(RwLock::new(HashMap::new())),
+            callback_map: Arc::new(RwLock::new(HashMap::new())),
             writable: AtomicBool::new(false),
         };
 
@@ -62,14 +69,20 @@ impl Connection {
 
     pub fn read_notify(&self, buf: Vec<Vec<u8>>) {
         for msg in buf.iter() {
-            match packet::parse_packet(msg) {
-                Some((packet_id, packet_type, response)) => {
-                    if packet_type == PacketType::ResponseValue {
-                        get_write_lock!(self.response_map).insert(packet_id, response);
-                        debug!("Inserted response to packet {}", packet_id);
-                    }
-                },
-                None => warn!("Possible junk data in stream"),
+            let packets = packet::parse_packet(msg);
+            
+            for packet in packets.iter() {
+                match packet {
+                    &Some((ref packet_id, ref packet_type, ref response)) => {
+                        if packet_type == &PacketType::ResponseValue {
+                            match get_write_lock!(self.callback_map).remove(packet_id) {
+                                Some(ref mut cb) => cb(Ok(response.clone())),
+                                None => debug!("No callback for request {}", packet_id),
+                            };
+                        }
+                    },
+                    &None => warn!("Possible junk data in stream"),
+                }
             }
         }
     }
@@ -93,25 +106,34 @@ impl Connection {
         get_write_lock!(self.packet_queue).push_back(packet::build_packet(PacketType::ExecCommand, 1, cmd));
     }
 
-    // TODO: Different futures
-    pub fn send_cmd(&self, cmd: &str) -> Box<Future<Item=String, Error=RconError>> {
+    pub fn send_cmd(&self, cmd: &str) -> RconResult {
+        let res: Arc<Mutex<CallbackResult>> = Arc::new(Mutex::new(CallbackResult {
+            inner: Err(RconError::Invalid)
+        }));
+        
+        let handle = thread::current();
+        let return_res = res.clone();
+        self.send_cmd_async(cmd, Box::new(move |res| {
+            {
+                lock!(return_res).inner = res;
+            }
+            handle.unpark();
+        }));
+        thread::park();
+        
+        let result = &lock!(res).inner;
+
+        match result {
+            &Ok(ref res) => Ok(res.clone()),
+            &Err(ref e) => Err(e.clone()),
+        }
+    }
+
+    pub fn send_cmd_async(&self, cmd: &str, cb: Box<FnMut(RconResult) + Send + Sync>) {
         let packet_id = self.next_packet_id();
         get_write_lock!(self.packet_queue).push_back(packet::build_packet(PacketType::ExecCommand, packet_id, cmd));
-        
-        let response_map = self.response_map.clone();
-        Box::new(future::poll_fn(move || {
-            debug!("Checking for response to {}", packet_id);
-            match get_write_lock!(response_map).remove(&packet_id) {
-                Some(result) => {
-                    Ok(Async::Ready(result.clone()))
-                }
-                None => {
-                    debug!("No response to packet {} stored", packet_id);
-                    Ok(Async::NotReady)
-                }
-            }
-        }))
-    }
+        get_write_lock!(self.callback_map).insert(packet_id, cb);
+    } 
 
     fn pump_queue(&self) {
         let mut queue = get_write_lock!(self.packet_queue);

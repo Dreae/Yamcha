@@ -7,6 +7,7 @@ import Dashboard from './Dashboard';
 declare var require: any;
 
 require('./style.scss');
+require('file-loader?name=[name].[ext]!./index.html');
 
 ReactDOM.render(
   (

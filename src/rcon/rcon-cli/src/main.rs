@@ -1,12 +1,8 @@
 extern crate yamcha_rcon;
-extern crate futures;
 extern crate env_logger;
 extern crate getopts;
 
 use yamcha_rcon::connection::Connection;
-use futures::future::Future;
-use futures::Async;
-use std::{thread, time};
 use getopts::Options;
 use std::env;
 
@@ -41,27 +37,10 @@ fn main() {
     yamcha_rcon::init();
     let con = Connection::new(&format!("{}:{}", addr, port), &matches.free[0].clone()).unwrap();
 
-    let mut res = con.send_cmd(&matches.free[1].clone());
-    
-    loop {
-        match res.poll() {
-            Ok(state) => {
-                match state {
-                    Async::Ready(res) => {
-                        println!("{}", res);
-                        break;
-                    },
-                    Async::NotReady => {
-                        thread::sleep(time::Duration::from_millis(100));
-                     }
-                }
-            },
-            Err(e) => {
-                println!("RCON Error: {:?}", e);
-                break;
-            }
-        }
-    }
-    
+    match con.send_cmd(&matches.free[1].clone()) {
+        Ok(res) => println!("{}", res),
+        Err(e) => println!("RCON err: {:?}", e)
+    };
+
     yamcha_rcon::shutdown();
 }

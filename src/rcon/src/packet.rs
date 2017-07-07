@@ -34,7 +34,7 @@ impl PacketType {
 
 #[inline(always)]
 pub fn build_packet(packet_type: PacketType, packet_id: i32, body: &str) -> Vec<u8> {
-    let mut pkt = Vec::new();
+    let mut pkt = Vec::with_capacity(body.len() + 14);
 
     pkt.write_i32::<LittleEndian>((body.len() + 10) as i32).unwrap();
     pkt.write_i32::<LittleEndian>(packet_id).unwrap();
@@ -47,18 +47,23 @@ pub fn build_packet(packet_type: PacketType, packet_id: i32, body: &str) -> Vec<
 }
 
 #[inline(always)]
-pub fn parse_packet(mut packet: &[u8]) -> Option<(i32, PacketType, String)> {
-    // TODO: Potentially more than one packet in a buffer
-    // need to deal with that
+pub fn parse_packet(mut packet: &[u8]) -> Vec<Option<(i32, PacketType, String)>> {
+    let mut packets = Vec::new();
     if packet.len() < 14 {
-        return None;
+        return packets;
     }
 
-    let packet_len = packet.read_i32::<LittleEndian>().unwrap();
-    let packet_id = packet.read_i32::<LittleEndian>().unwrap();
-    let packet_type = packet.read_i32::<LittleEndian>().unwrap();
-    
-    let body = String::from_utf8_lossy(&packet[0..packet_len as usize - 10]);
-    
-    Some((packet_id, PacketType::from_i32(packet_type, true), (*body).to_owned()))
+    while packet.len() >= 14 {
+        let packet_len = packet.read_i32::<LittleEndian>().unwrap();
+        let packet_id = packet.read_i32::<LittleEndian>().unwrap();
+        let packet_type = packet.read_i32::<LittleEndian>().unwrap();
+        
+        let body = String::from_utf8_lossy(&packet[0..packet_len as usize - 8]);
+        
+        packets.push(Some((packet_id, PacketType::from_i32(packet_type, true), (*body).to_owned())));
+
+        packet = &packet[packet_len as usize - 8..];
+    }
+
+    packets
 }
