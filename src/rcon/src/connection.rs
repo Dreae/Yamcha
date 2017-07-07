@@ -45,6 +45,7 @@ impl Connection {
         };
 
         let mut packet_queue = VecDeque::new();
+        // TODO: Handle auth failures
         packet_queue.push_back(packet::build_packet(PacketType::Auth, 1, password));
 
         let connection = Connection {
