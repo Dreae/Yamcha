@@ -48,6 +48,8 @@ pub fn build_packet(packet_type: PacketType, packet_id: i32, body: &str) -> Vec<
 
 #[inline(always)]
 pub fn parse_packet(mut packet: &[u8]) -> Option<(i32, PacketType, String)> {
+    // TODO: Potentially more than one packet in a buffer
+    // need to deal with that
     if packet.len() < 14 {
         return None;
     }
