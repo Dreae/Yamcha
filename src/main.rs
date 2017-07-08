@@ -29,6 +29,7 @@ mod ingress;
 mod gamestate;
 mod api;
 mod middleware;
+mod persistence;
 
 pub mod schema;
 pub mod models;
@@ -56,7 +57,7 @@ fn main() {
     yamcha_rcon::init();
 
     {
-        let conn = middleware::DBConnection::new();
+        let conn = middleware::DBConnection::new().expect("Error getting connection from pool");
         embedded_migrations::run(&*conn).expect("Error running migrations");
     }
 
@@ -78,15 +79,14 @@ fn main() {
 fn load_server_list() {
     use schema::servers::dsl::*;
 
-    let conn = middleware::DBConnection::new();
+    let conn = middleware::DBConnection::new().expect("Error getting connection from pool");
     let results = servers.load::<models::Server>(&*conn).expect("Error loading severs");
-    let mut server_list = get_write_lock!(SERVERS);
     for server in results {
         let server_result = Server::new(server.id as u32, server.name, server.password, server.ip, server.port as u32);
         match server_result {
             Ok(mut s) => {
                 s.rcon_init();
-                server_list.register(s);
+                get_write_lock!(SERVERS).register(s);
             },
             Err(e) => {
                 error!("Error registering server {:?}", e);

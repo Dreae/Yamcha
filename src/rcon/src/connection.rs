@@ -72,19 +72,19 @@ impl Connection {
 
     pub fn read_notify(&self, buf: Vec<Vec<u8>>) {
         for msg in buf.iter() {
-            let packets = packet::parse_packet(msg);
+            let mut packets = packet::parse_packet(msg);
             
-            for packet in packets.iter() {
+            for packet in packets.drain(..) {
                 match packet {
-                    &Some((ref packet_id, ref packet_type, ref response)) => {
-                        if packet_type == &PacketType::ResponseValue {
-                            match get_write_lock!(self.callback_map).remove(packet_id) {
-                                Some(ref mut cb) => cb(Ok(response.clone())),
+                    Some((packet_id, packet_type, response)) => {
+                        if packet_type == PacketType::ResponseValue {
+                            match get_write_lock!(self.callback_map).remove(&packet_id) {
+                                Some(mut cb) => cb(Ok(response.clone())),
                                 None => debug!("No callback for request {}", packet_id),
                             };
                         }
                     },
-                    &None => warn!("Possible junk data in stream"),
+                    None => warn!("Possible junk data in stream"),
                 }
             }
         }
@@ -138,11 +138,18 @@ impl Connection {
         }));
         thread::park();
         
-        let result = &lock!(res).inner;
-
-        match result {
-            &Ok(ref res) => Ok(res.clone()),
-            &Err(ref e) => Err(e.clone()),
+        // Should be safe, res is only locked in the callback
+        // and is released before this thread is unparked
+        match Arc::try_unwrap(res) {
+            Ok(lock) => {
+                match lock.into_inner().unwrap().inner {
+                    Ok(res) => Ok(res),
+                    Err(e) => Err(e),
+                }
+            },
+            Err(_) => {
+                unreachable!()
+            }
         }
     }
 
