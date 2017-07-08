@@ -17,7 +17,7 @@ pub struct ServerSummary {
 pub fn get_servers() -> JSON<Vec<ServerSummary>> {
   let mut server_summaries = Vec::new();
   for (server_id, server) in get_read_lock!(SERVERS).servers.iter() {
-    server_summaries.push(ServerSummary{
+    server_summaries.push(ServerSummary {
       server_id: *server_id,
       name: server.name.clone(),
       players_active: get_read_lock!(server.gamestate).players.keys().count(),

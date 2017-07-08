@@ -79,7 +79,7 @@ impl Connection {
                     Some((packet_id, packet_type, response)) => {
                         if packet_type == PacketType::ResponseValue {
                             match get_write_lock!(self.callback_map).remove(&packet_id) {
-                                Some(mut cb) => cb(Ok(response.clone())),
+                                Some(mut cb) => cb(Ok(response)),
                                 None => debug!("No callback for request {}", packet_id),
                             };
                         }
