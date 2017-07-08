@@ -47,6 +47,8 @@ lazy_static! {
     };
 }
 
+embed_migrations!("./migrations");
+
 fn main() {
     dotenv().ok();
     env_logger::init().unwrap();
@@ -55,7 +57,7 @@ fn main() {
 
     {
         let conn = middleware::DBConnection::new();
-        diesel::migrations::run_pending_migrations(&*conn).expect("Error running migrations");
+        embedded_migrations::run(&*conn).expect("Error running migrations");
     }
 
     load_server_list();
