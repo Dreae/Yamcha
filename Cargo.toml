@@ -16,6 +16,14 @@ log = "0.3.8"
 rocket = "0.2.8"
 rocket_codegen = "0.2.8"
 rocket_contrib = "0.2.8"
+diesel = { version = "0.14.0", features = ["mysql"] }
+diesel_codegen = { version = "0.14.0", features = ["mysql"] }
+r2d2-diesel = { git = "https://github.com/nottxy/r2d2-diesel" }
+dotenv = "0.9.0"
+r2d2 = "0.7.2"
 
 [dependencies.yamcha-macros]
 path = "./src/macros"
+
+[dependencies.yamcha-rcon]
+path = "./src/rcon"

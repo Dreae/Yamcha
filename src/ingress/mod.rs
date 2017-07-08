@@ -56,7 +56,7 @@ pub fn init() {
                 Ok(msg) => {
                   debug!("{:?}", msg);
                   // TODO: Improve locking granularity
-                  get_read_lock!(SERVERS).get_server_state(msg.server_id).map(|s| get_write_lock!(s).process_log_msg(&msg));
+                  get_read_lock!(SERVERS).get_server_state(msg.server_id).map(|s| get_write_lock!(s.gamestate).process_log_msg(&msg));
                 },
                 Err(reason) => {
                   debug!("Got parse fail {:?}", reason);

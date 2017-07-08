@@ -14,14 +14,16 @@ lazy_static! {
 }
 
 pub type RconResult = Result<String, RconError>;
+pub type RconCallback = FnMut(RconResult) + Send + Sync;
 
 pub struct Connection {
     pub token: Token,
     pub stream: Mutex<TcpStream>,
     writable: AtomicBool,
     packet_queue: RwLock<VecDeque<Vec<u8>>>,
-    callback_map: Arc<RwLock<HashMap<i32, Box<FnMut(RconResult) + Send + Sync>>>>,
+    callback_map: Arc<RwLock<HashMap<i32, Box<RconCallback>>>>,
     packet_id: AtomicUsize,
+    connected: AtomicBool,
 }
 
 #[derive(Clone, Debug)]
@@ -62,6 +64,7 @@ impl Connection {
             packet_queue: RwLock::new(packet_queue),
             callback_map: Arc::new(RwLock::new(HashMap::new())),
             writable: AtomicBool::new(false),
+            connected: AtomicBool::new(true),
         };
 
         Ok(super::register(connection))
@@ -88,22 +91,36 @@ impl Connection {
     }
 
     pub fn handle_stream_error(&self, e: Error) {
-        if e.kind() != ErrorKind::WouldBlock {
-            error!("Stream error {:?}", e)
-        }
-
-        if e.kind() != ErrorKind::Interrupted {
-            self.writable.swap(false, Ordering::Relaxed);
+        match e.kind() {
+            ErrorKind::WouldBlock => {
+                self.writable.store(false, Ordering::Relaxed);
+             },
+            ErrorKind::Interrupted => { },
+            _ => {
+                error!("Socket error {:?}", e);
+                self.writable.store(false, Ordering::Relaxed);
+                self.cancel_outstanding(e.kind());
+                self.connected.store(false, Ordering::Relaxed);
+            }
         }
     }
 
+    fn cancel_outstanding(&self, kind: ErrorKind) {
+        let mut callbacks = get_write_lock!(self.callback_map);
+        for (_, mut cb) in callbacks.drain() {
+            cb(Err(RconError::SocketError(kind)));
+        }
+
+        get_write_lock!(self.packet_queue).clear();
+    }
+
     pub fn writable(&self) {
-        self.writable.swap(true, Ordering::SeqCst);
+        self.writable.store(true, Ordering::SeqCst);
         self.pump_queue();
     }
 
     pub fn notify_cmd(&self, cmd: &str) {
-        get_write_lock!(self.packet_queue).push_back(packet::build_packet(PacketType::ExecCommand, 1, cmd));
+        self._send_cmd(cmd, None);
     }
 
     pub fn send_cmd(&self, cmd: &str) -> RconResult {
@@ -129,29 +146,47 @@ impl Connection {
         }
     }
 
-    pub fn send_cmd_async(&self, cmd: &str, cb: Box<FnMut(RconResult) + Send + Sync>) {
-        let packet_id = self.next_packet_id();
-        get_write_lock!(self.packet_queue).push_back(packet::build_packet(PacketType::ExecCommand, packet_id, cmd));
-        get_write_lock!(self.callback_map).insert(packet_id, cb);
+    pub fn send_cmd_async(&self, cmd: &str, cb: Box<RconCallback>) {
+        self._send_cmd(cmd, Some(cb));
     } 
 
+    fn _send_cmd(&self, cmd: &str, cb: Option<Box<RconCallback>>) {
+        if !self.connected.load(Ordering::Acquire) {
+            if let Some(mut cb) = cb {
+                cb(Err(RconError::SocketError(ErrorKind::NotConnected)));
+                return;
+            }
+        }
+
+        let packet_id = self.next_packet_id();
+        get_write_lock!(self.packet_queue).push_back(packet::build_packet(PacketType::ExecCommand, packet_id, cmd));
+
+        if let Some(cb) = cb {
+            get_write_lock!(self.callback_map).insert(packet_id, cb);
+        }
+
+        self.pump_queue();
+    }
+
     fn pump_queue(&self) {
-        let mut queue = get_write_lock!(self.packet_queue);
-        if !queue.is_empty() {
-            while self.writable.load(Ordering::Acquire) {
-                if let Some(packet) = queue.pop_front() {
-                    match lock!(self.stream).write(&packet) {
-                        Ok(num_written) => {
-                            if num_written < packet.len() {
-                                queue.push_front(packet[num_written..].to_owned())
+        if self.writable.load(Ordering::SeqCst) {
+            let mut queue = get_write_lock!(self.packet_queue);
+            if !queue.is_empty() {
+                while self.writable.load(Ordering::Acquire) {
+                    if let Some(packet) = queue.pop_front() {
+                        match lock!(self.stream).write(&packet) {
+                            Ok(num_written) => {
+                                if num_written < packet.len() {
+                                    queue.push_front(packet[num_written..].to_owned())
+                                }
+                            },
+                            Err(e) => {
+                                self.handle_stream_error(e);
                             }
-                        },
-                        Err(e) => {
-                            self.handle_stream_error(e);
                         }
+                    } else {
+                        break;
                     }
-                } else {
-                    break;
                 }
             }
         }

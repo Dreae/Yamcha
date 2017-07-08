@@ -16,6 +16,21 @@ pub struct ConnectedPlayer {
   steamid: String,
 }
 
+impl ConnectedPlayer {
+  pub fn new(rating: i32, steamid: String) -> ConnectedPlayer {
+    ConnectedPlayer {
+      rating: rating,
+      kills: 0,
+      deaths: 0,
+      streak: 0,
+      headshots: 0,
+      assists: 0,
+      accuracy: 0.0,
+      steamid: steamid,
+    }
+  }
+}
+
 pub struct GameState {
   pub players: HashMap<i32, ConnectedPlayer>,
 }
