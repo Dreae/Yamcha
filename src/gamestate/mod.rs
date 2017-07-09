@@ -15,6 +15,7 @@ pub struct ConnectedPlayer {
   assists: u32,
   accuracy: f32,
   steamid: String,
+  bot: bool,
 }
 
 impl ConnectedPlayer {
@@ -27,6 +28,7 @@ impl ConnectedPlayer {
       headshots: 0,
       assists: 0,
       accuracy: 0.0,
+      bot: steamid == "BOT",
       steamid: steamid,
       name: name,
     }
@@ -123,6 +125,7 @@ impl GameState {
   pub fn player_connected(&mut self, msg: &ingress::logparse::LogMessage) {
     debug!("New player {} connected to uid {}", msg.target, msg.target_uid);
     
+    let steamid = msg.target.to_owned();
     self.players.insert(msg.target_uid, ConnectedPlayer {
       rating: 1000,
       kills: 0,
@@ -131,7 +134,8 @@ impl GameState {
       headshots: 0,
       assists: 0,
       accuracy: 0.0,
-      steamid: msg.target.to_owned(),
+      bot: steamid == "BOT",
+      steamid: steamid,
       name: msg.target_name.unwrap().to_owned(),
     });
   }

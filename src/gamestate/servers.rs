@@ -38,6 +38,7 @@ impl Server {
   }
 
   pub fn init(&mut self) {
+    debug!("Initializing server {}", self.server_id);
     match self.rcon_conn.send_cmd("status") {
       Ok(status) => self.parse_status(&status),
       Err(e) => warn!("Error fetching initial state for server {}: {:?}", self.rcon_address, e),
@@ -45,13 +46,19 @@ impl Server {
 
     let state = self.gamestate.clone();
     let server_id = self.server_id;
+    info!("Starting persistence thread for server {}", server_id);
     self.persistence_thread = Some(thread::spawn(move || {
       loop {
         thread::sleep(Duration::from_secs(10));
         let lock = get_read_lock!(state);
         for player in lock.players.values() {
+          if player.bot {
+            continue;
+          }
+
           match persistence::get_player(server_id as i32, &player.steamid) {
             Some(mut db_player) => {
+              // TODO: Diff state to get kills, deaths, etc.
               db_player.rating = player.rating;
               db_player.last_name = player.name.clone();
 
