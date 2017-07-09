@@ -58,7 +58,10 @@ pub fn init() {
               match logparse::parse(&msg) {
                 Ok(msg) => {
                   debug!("{:?}", msg);
-                  get_read_lock!(SERVERS).get_server_state(msg.server_id).map(|s| get_write_lock!(s.gamestate).process_log_msg(&msg));
+                  match get_read_lock!(SERVERS).get_server_state(msg.server_id) {
+                    Some(s) => s.process_log_msg(&msg),
+                    None => warn!("Got log message for unrecognized server_id {}", msg.server_id),
+                  };
                 },
                 Err(reason) => {
                   debug!("Got parse fail {:?}", reason);

@@ -1,12 +1,11 @@
 use std::collections::HashMap;
 use std::sync::{RwLock, Arc};
 use yamcha_rcon::connection::Connection;
-use std::thread::{self, JoinHandle};
-use std::time::Duration;
 use yamcha_rcon;
 use regex::Regex;
 
-use super::{GameState, ConnectedPlayer};
+use super::{GameState, ConnectedPlayer, ingress};
+use super::gamestate_persistence::GamestatePersistence;
 use persistence;
 
 pub struct Server {
@@ -16,11 +15,12 @@ pub struct Server {
   pub max_players: usize,
   rcon_address: String,
   rcon_conn: Arc<Connection>,
-  persistence_thread: Option<JoinHandle<()>>,
+  persistence_thread: Option<GamestatePersistence>,
 }
 
 impl Server {
   pub fn new(id: u32, name: String, rcon_password: String, rcon_address: String, rcon_port: u32) -> Result<Server, yamcha_rcon::connection::RconError> {
+    debug!("RconAddr for {}: {}:{}", id, rcon_address, rcon_port);
     let rcon_conn = match Connection::new(&format!("{}:{}", rcon_address, rcon_port), &rcon_password) {
       Ok(conn) => conn,
       Err(e) => return Err(e),
@@ -44,42 +44,10 @@ impl Server {
       Err(e) => warn!("Error fetching initial state for server {}: {:?}", self.rcon_address, e),
     };
 
-    let state = self.gamestate.clone();
-    let server_id = self.server_id;
-    info!("Starting persistence thread for server {}", server_id);
-    self.persistence_thread = Some(thread::spawn(move || {
-      loop {
-        thread::sleep(Duration::from_secs(10));
-        let lock = get_read_lock!(state);
-        for player in lock.players.values() {
-          if player.bot {
-            continue;
-          }
-
-          match persistence::get_player(server_id as i32, &player.steamid) {
-            Some(mut db_player) => {
-              // TODO: Diff state to get kills, deaths, etc.
-              db_player.rating = player.rating;
-              db_player.last_name = player.name.clone();
-
-              persistence::update_player(db_player);
-            },
-            None => {
-              persistence::new_player(
-                server_id as i32, 
-                &player.steamid, 
-                &player.name, 
-                player.rating, 
-                player.kills, 
-                player.deaths, 
-                player.headshots,
-                player.accuracy
-              );
-            }
-          }
-        }
-      }
-    }))
+    let mut save_thread = GamestatePersistence::new(self.server_id, self.gamestate.clone());
+    save_thread.init();
+    
+    self.persistence_thread = Some(save_thread);
   }
 
   pub fn parse_status(&mut self, status: &str) {
@@ -115,6 +83,34 @@ impl Server {
         }
       }
     }
+  }
+
+  pub fn process_log_msg(&self, msg: &ingress::logparse::LogMessage) {
+    debug!("Server got msg {:?}", msg);
+    match msg.msg_type {
+      ingress::logparse::LogMessageType::Connected => {
+        if msg.target != "BOT" {
+          match persistence::get_player(self.server_id as i32, msg.target) {
+            Some(player) => get_write_lock!(self.gamestate).players.insert(msg.target_uid, ConnectedPlayer::new(player.rating, player.steam_id, msg.target_name.unwrap().to_owned())),
+            None => get_write_lock!(self.gamestate).players.insert(msg.target_uid, ConnectedPlayer::new(1000, msg.target.to_owned(), msg.target_name.unwrap().to_owned())),
+          };
+        } else {
+          ConnectedPlayer::new(1000, msg.target.to_owned(), msg.target_name.unwrap().to_owned());
+        }
+      },
+      ingress::logparse::LogMessageType::Disconnected => {
+        match get_write_lock!(self.gamestate).players.remove(&msg.target_uid) {
+          Some(connected_player) => {
+            match self.persistence_thread {
+              Some(ref persistence_thread) => persistence_thread.player_disconnected(msg.target_uid, &connected_player),
+              None => warn!("Player disconnected before server initialized"),
+            };
+          },
+          None => warn!("No record of disconecting player {}", msg.target),
+        };
+      },
+      _ => get_write_lock!(self.gamestate).process_log_msg(msg)
+    };
   }
 }
 

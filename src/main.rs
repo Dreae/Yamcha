@@ -56,10 +56,10 @@ fn main() {
     
     yamcha_rcon::init();
 
-    {
-        let conn = middleware::DBConnection::new().expect("Error getting connection from pool");
-        embedded_migrations::run(&*conn).expect("Error running migrations");
-    }
+    // {
+    //     let conn = middleware::DBConnection::new().expect("Error getting connection from pool");
+    //     embedded_migrations::run(&*conn).expect("Error running migrations");
+    // }
 
     load_server_list();
 
@@ -82,6 +82,7 @@ fn load_server_list() {
     let conn = middleware::DBConnection::new().expect("Error getting connection from pool");
     let results = servers.load::<models::Server>(&*conn).expect("Error loading severs");
     for server in results {
+        debug!("Server {:?}", server);
         info!("Loaded server {}", server.id);
         let server_result = Server::new(server.id as u32, server.name, server.password, server.ip, server.port as u32);
         match server_result {

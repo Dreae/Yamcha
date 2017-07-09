@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use super::ingress;
 
 pub mod servers;
+pub mod gamestate_persistence;
 
 #[derive(Serialize, Clone)]
 pub struct ConnectedPlayer {
@@ -13,7 +14,8 @@ pub struct ConnectedPlayer {
   streak: u32,
   headshots: u32,
   assists: u32,
-  accuracy: f32,
+  shots_fired: i64,
+  shots_hit: i64,
   steamid: String,
   bot: bool,
 }
@@ -27,7 +29,8 @@ impl ConnectedPlayer {
       streak: 0,
       headshots: 0,
       assists: 0,
-      accuracy: 0.0,
+      shots_fired: 0,
+      shots_hit: 0,
       bot: steamid == "BOT",
       steamid: steamid,
       name: name,
@@ -56,13 +59,8 @@ impl GameState {
       },
       ingress::logparse::LogMessageType::KillAssist => {
         self.kill_assist(msg);
-      },
-      ingress::logparse::LogMessageType::Connected => {
-        self.player_connected(msg);
-      },
-      ingress::logparse::LogMessageType::Disconnected => {
-        self.player_disconnected(msg);
       }
+      _ => unreachable!()
     }
   }
 
@@ -120,29 +118,6 @@ impl GameState {
     let mut killer = killer.unwrap();
     killer.rating += 1;
     killer.assists += 1;
-  }
-
-  pub fn player_connected(&mut self, msg: &ingress::logparse::LogMessage) {
-    debug!("New player {} connected to uid {}", msg.target, msg.target_uid);
-    
-    let steamid = msg.target.to_owned();
-    self.players.insert(msg.target_uid, ConnectedPlayer {
-      rating: 1000,
-      kills: 0,
-      deaths: 0,
-      streak: 0,
-      headshots: 0,
-      assists: 0,
-      accuracy: 0.0,
-      bot: steamid == "BOT",
-      steamid: steamid,
-      name: msg.target_name.unwrap().to_owned(),
-    });
-  }
-
-  pub fn player_disconnected(&mut self, msg: &ingress::logparse::LogMessage) {
-    debug!("Player {} disconnected from uid {}", msg.target, msg.target_uid);
-    self.players.remove(&msg.target_uid);
   }
 
   pub fn get_player(&self, uid: i32) -> Option<ConnectedPlayer> {
