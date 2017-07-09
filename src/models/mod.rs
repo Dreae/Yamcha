@@ -9,7 +9,7 @@ pub struct Server {
   pub port: i32,
 }
 
-#[derive(Queryable, Insertable, AsChangeset)]
+#[derive(Queryable, Insertable, Debug, AsChangeset)]
 #[table_name="players"]
 pub struct Player {
   pub steam_id: String,

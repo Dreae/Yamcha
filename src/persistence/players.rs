@@ -27,6 +27,7 @@ pub fn get_player(server_id: i32, steam_id: &str) -> Option<Player> {
 }
 
 pub fn update_player(player: &Player) {
+  debug!("Updating player {:?}", player);
   if let Ok(conn) = DBConnection::new() {
     let res = diesel::update(dsl::players.filter(dsl::server_id.eq(&player.server_id)).filter(dsl::steam_id.eq(&player.steam_id)))
       .set(player)

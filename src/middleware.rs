@@ -3,14 +3,14 @@ use rocket::outcome::Outcome;
 use rocket::http::Status;
 use rocket::request;
 use std::ops::Deref;
-use diesel::mysql::MysqlConnection;
+use diesel::pg::PgConnection;
 use r2d2_diesel::ConnectionManager;
 use r2d2::PooledConnection;
 use super::POOL;
 use r2d2;
 
 pub struct DBConnection {
-  conn: PooledConnection<ConnectionManager<MysqlConnection>>,
+  conn: PooledConnection<ConnectionManager<PgConnection>>,
 }
 
 impl DBConnection {
@@ -34,9 +34,9 @@ impl <'a, 'r> FromRequest<'a, 'r> for DBConnection {
 }
 
 impl Deref for DBConnection {
-  type Target = MysqlConnection;
+  type Target = PgConnection;
 
-  fn deref(&self) -> &MysqlConnection {
+  fn deref(&self) -> &PgConnection {
     &*self.conn
   }
 }

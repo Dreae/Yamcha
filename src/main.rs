@@ -22,7 +22,7 @@ use std::env;
 use std::sync::RwLock;
 use dotenv::dotenv;
 use diesel::prelude::*;
-use diesel::mysql::MysqlConnection;
+use diesel::pg::PgConnection;
 use r2d2_diesel::ConnectionManager;
 
 mod ingress;
@@ -40,10 +40,10 @@ use std::thread;
 
 lazy_static! {
     pub static ref SERVERS: RwLock<Servers> = RwLock::new(Servers::new());
-    pub static ref POOL: r2d2::Pool<ConnectionManager<MysqlConnection>> = {
+    pub static ref POOL: r2d2::Pool<ConnectionManager<PgConnection>> = {
         let database_url = env::var("DATABASE_URL").expect("DATABASE_URL to be set");
         let config = r2d2::Config::default();
-        let manager = ConnectionManager::<MysqlConnection>::new(database_url);
+        let manager = ConnectionManager::<PgConnection>::new(database_url);
         r2d2::Pool::new(config, manager).expect("Failed to create connection pool")
     };
 }
@@ -56,10 +56,10 @@ fn main() {
     
     yamcha_rcon::init();
 
-    // {
-    //     let conn = middleware::DBConnection::new().expect("Error getting connection from pool");
-    //     embedded_migrations::run(&*conn).expect("Error running migrations");
-    // }
+    {
+        let conn = middleware::DBConnection::new().expect("Error getting connection from pool");
+        embedded_migrations::run(&*conn).expect("Error running migrations");
+    }
 
     load_server_list();
 

@@ -86,7 +86,6 @@ impl Server {
   }
 
   pub fn process_log_msg(&self, msg: &ingress::logparse::LogMessage) {
-    debug!("Server got msg {:?}", msg);
     match msg.msg_type {
       ingress::logparse::LogMessageType::Connected => {
         if msg.target != "BOT" {
@@ -95,16 +94,18 @@ impl Server {
             None => get_write_lock!(self.gamestate).players.insert(msg.target_uid, ConnectedPlayer::new(1000, msg.target.to_owned(), msg.target_name.unwrap().to_owned())),
           };
         } else {
-          ConnectedPlayer::new(1000, msg.target.to_owned(), msg.target_name.unwrap().to_owned());
+          get_write_lock!(self.gamestate).players.insert(msg.target_uid, ConnectedPlayer::new(1000, msg.target.to_owned(), msg.target_name.unwrap().to_owned()));
         }
       },
       ingress::logparse::LogMessageType::Disconnected => {
         match get_write_lock!(self.gamestate).players.remove(&msg.target_uid) {
           Some(connected_player) => {
-            match self.persistence_thread {
-              Some(ref persistence_thread) => persistence_thread.player_disconnected(msg.target_uid, &connected_player),
-              None => warn!("Player disconnected before server initialized"),
-            };
+            if msg.target != "BOT" {
+              match self.persistence_thread {
+                Some(ref persistence_thread) => persistence_thread.player_disconnected(msg.target_uid, &connected_player),
+                None => warn!("Player disconnected before server initialized"),
+              };
+            }
           },
           None => warn!("No record of disconecting player {}", msg.target),
         };
