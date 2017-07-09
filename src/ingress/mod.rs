@@ -2,8 +2,7 @@ use mio::net::UdpSocket;
 use mio::{Poll, Ready, PollOpt, Token, Events};
 use std::net::SocketAddr;
 use std::io::ErrorKind;
-use std::str;
-use std::mem;
+use std::{str, mem, env};
 
 pub mod logparse;
 
@@ -13,7 +12,11 @@ const SERVER: Token = Token(0);
 
 pub fn init() {
   info!("Starting Yamcha Ingress");
-  let addr: SocketAddr = match "0.0.0.0:2000".parse() {
+  
+  let listen_ip = env::var("YAMCHA_INGRESS_ADDRESS").unwrap_or("0.0.0.0".to_owned());
+  let list_port = env::var("YAMCHA_INGRESS_PORT").unwrap_or("2000".to_owned());
+
+  let addr: SocketAddr = match format!("{}:{}", listen_ip, list_port).parse() {
     Ok(socket) => socket,
     Err(_) => panic!("Couldn't parse socket address"),
   };
@@ -55,7 +58,6 @@ pub fn init() {
               match logparse::parse(&msg) {
                 Ok(msg) => {
                   debug!("{:?}", msg);
-                  // TODO: Improve locking granularity
                   get_read_lock!(SERVERS).get_server_state(msg.server_id).map(|s| get_write_lock!(s.gamestate).process_log_msg(&msg));
                 },
                 Err(reason) => {

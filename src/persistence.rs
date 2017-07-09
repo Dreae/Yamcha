@@ -1,7 +1,8 @@
 use models::Player;
 use middleware::DBConnection;
-use schema::players::dsl;
+use schema::players::{self, dsl};
 use diesel::prelude::*;
+use diesel;
 
 pub fn get_player(server_id: i32, steam_id: &str) -> Option<Player> {
   if let Ok(conn) = DBConnection::new() {
@@ -22,5 +23,42 @@ pub fn get_player(server_id: i32, steam_id: &str) -> Option<Player> {
   } else {
     error!("Timeout getting database connection");
     None
+  }
+}
+
+pub fn update_player(player: Player) {
+  if let Ok(conn) = DBConnection::new() {
+    let res = diesel::update(dsl::players.filter(dsl::server_id.eq(&player.server_id)).filter(dsl::steam_id.eq(&player.steam_id)))
+      .set(&player)
+      .execute(&*conn);
+
+    match res {
+      Err(e) => error!("Error updating player {:?}", e),
+      _ => { }
+    };
+  } else {
+    error!("Timeout getting database connection");
+  }
+}
+
+pub fn new_player(server_id: i32, steam_id: &str, name: &str, rating: i32, kills: u32, deaths: u32, headshots: u32, accuracy: f32) {
+  if let Ok(conn) = DBConnection::new() {
+    let player = Player {
+      rating: rating,
+      last_name: name.to_owned(),
+      steam_id: steam_id.to_owned(),
+      server_id: server_id,
+      kills: kills as i32,
+      deaths: deaths as i32,
+      headshots: headshots as i32,
+      accuracy: accuracy,
+    };
+
+    match diesel::insert(&player).into(players::table).execute(&*conn) {
+      Err(e) => error!("Error updating player {:?}", e),
+      _ => { }
+    };
+  } else {
+    error!("Timeout getting database connection");
   }
 }

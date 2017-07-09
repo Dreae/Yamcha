@@ -37,6 +37,7 @@ pub struct LogMessage<'a> {
   pub msg_type: LogMessageType,
   pub target: &'a str,
   pub target_uid: i32,
+  pub target_name: Option<&'a str>,
   pub victim: Option<&'a str>,
   pub victim_uid: Option<i32>,
   pub weapon: Option<&'a str>,
@@ -75,7 +76,7 @@ pub fn parse<'a>(bytes: &'a [u8]) -> ParseResult<'a> {
     static ref KILL_RE: Regex = Regex::new(r#"1server_id_([0-9]+)[^"]*"(?:.+<([0-9]+)><([a-zA-Z0-9\-:_]+)><([A-Z]+)>)"\s*\[([0-9\-]+)\s*([0-9\-]+)\s*([0-9\-]+)\]\s*killed\s*"(?:.+<([0-9]+)><([a-zA-Z0-9\-:_]+)><([A-Z]+)>)"\s*\[([0-9\-]+)\s*([0-9\-]+)\s*([0-9\-]+)\]\s*with\s*"([^"]+)"\s*(\(headshot\))?"#).unwrap();
     static ref ASSIST_RE: Regex = Regex::new(r#"1server_id_([0-9]+)[^"]*"(?:.+<([0-9]+)><([a-zA-Z0-9\-:_]+)><([A-Z]+)>)"\s*assisted\s*killing\s*"(?:.+<([0-9]+)><([a-zA-Z0-9\-:_]+)><([A-Z]+)>)""#).unwrap();
     static ref DISCONNECT_RE: Regex = Regex::new(r#"1server_id_([0-9]+)[^"]*"(?:.+<([0-9]+)><([a-zA-Z0-9\-:_]+)><([A-Z]+)>)"\s*disconnected"#).unwrap();
-    static ref CONNECT_RE: Regex = Regex::new(r#"1server_id_([0-9]+)[^"]*"(?:.+<([0-9]+)><([a-zA-Z0-9\-:_]+)><([A-Z]*)>)"\s*entered the game"#).unwrap();
+    static ref CONNECT_RE: Regex = Regex::new(r#"1server_id_([0-9]+)[^"]*"(?:(.+)<([0-9]+)><([a-zA-Z0-9\-:_]+)><([A-Z]*)>)"\s*entered the game"#).unwrap();
   }
 
   match KILL_RE.captures(msg) {
@@ -129,6 +130,7 @@ fn parse_kill_msg<'a>(m: &Captures<'a>) -> ParseResult<'a> {
     msg_type: msg_type,
     target: m.get(3).map_or("", |g| g.as_str()),
     target_uid: target_uid,
+    target_name: None,
     victim: Some(m.get(9).map_or("", |g| g.as_str())),
     victim_uid: Some(victim_uid),
     weapon: m.get(14).map(|g| g.as_str()),
@@ -160,6 +162,7 @@ fn parse_assist_msg<'a>(m: &Captures<'a>) -> ParseResult<'a> {
     msg_type: LogMessageType::KillAssist,
     target: m.get(3).map_or("", |g| g.as_str()),
     target_uid: target_uid,
+    target_name: None,
     victim: Some(m.get(6).map_or("", |g| g.as_str())),
     victim_uid: Some(victim_uid),
     weapon: None,
@@ -171,7 +174,7 @@ fn parse_assist_msg<'a>(m: &Captures<'a>) -> ParseResult<'a> {
 fn parse_connected<'a>(m: &Captures<'a>, msg_type: LogMessageType) -> ParseResult<'a> {
   let server_id = get_server_id!(m);
 
-  let target_uid = m.get(2).map_or("-1", |g| g.as_str()).parse::<i32>().unwrap_or(-1);
+  let target_uid = m.get(3).map_or("-1", |g| g.as_str()).parse::<i32>().unwrap_or(-1);
 
   if target_uid == -1 {
     return Err(ParseError::RegexFail);
@@ -180,7 +183,8 @@ fn parse_connected<'a>(m: &Captures<'a>, msg_type: LogMessageType) -> ParseResul
   Ok(LogMessage {
     server_id: server_id,
     msg_type: msg_type,
-    target: m.get(3).map_or("", |g| g.as_str()),
+    target: m.get(4).map_or("", |g| g.as_str()),
+    target_name: Some(m.get(2).map_or("", |g| g.as_str())),
     target_uid: target_uid,
     victim: None,
     victim_uid: None,

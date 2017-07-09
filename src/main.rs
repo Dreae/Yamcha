@@ -85,7 +85,7 @@ fn load_server_list() {
         let server_result = Server::new(server.id as u32, server.name, server.password, server.ip, server.port as u32);
         match server_result {
             Ok(mut s) => {
-                s.rcon_init();
+                s.init();
                 get_write_lock!(SERVERS).register(s);
             },
             Err(e) => {

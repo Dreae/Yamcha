@@ -6,6 +6,7 @@ pub mod servers;
 
 #[derive(Serialize, Clone)]
 pub struct ConnectedPlayer {
+  name: String,
   rating: i32,
   kills: u32,
   deaths: u32,
@@ -17,7 +18,7 @@ pub struct ConnectedPlayer {
 }
 
 impl ConnectedPlayer {
-  pub fn new(rating: i32, steamid: String) -> ConnectedPlayer {
+  pub fn new(rating: i32, steamid: String, name: String) -> ConnectedPlayer {
     ConnectedPlayer {
       rating: rating,
       kills: 0,
@@ -27,6 +28,7 @@ impl ConnectedPlayer {
       assists: 0,
       accuracy: 0.0,
       steamid: steamid,
+      name: name,
     }
   }
 }
@@ -130,6 +132,7 @@ impl GameState {
       assists: 0,
       accuracy: 0.0,
       steamid: msg.target.to_owned(),
+      name: msg.target_name.unwrap().to_owned(),
     });
   }
 

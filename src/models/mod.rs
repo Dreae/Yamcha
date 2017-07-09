@@ -9,7 +9,8 @@ pub struct Server {
   pub port: i32,
 }
 
-#[derive(Queryable, Clone)]
+#[derive(Queryable, Insertable, AsChangeset)]
+#[table_name="players"]
 pub struct Player {
   pub steam_id: String,
   pub server_id: i32,
@@ -19,11 +20,4 @@ pub struct Player {
   pub kills: i32,
   pub deaths: i32,
   pub headshots: i32,
-}
-
-#[derive(Insertable)]
-#[table_name="players"]
-pub struct NewPlayer<'a> {
-  pub steam_id: &'a str,
-  pub server_id: i32,
 }

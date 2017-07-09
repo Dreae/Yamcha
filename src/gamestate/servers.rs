@@ -1,20 +1,22 @@
 use std::collections::HashMap;
 use std::sync::{RwLock, Arc};
 use yamcha_rcon::connection::Connection;
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
 use yamcha_rcon;
 use regex::Regex;
 
 use super::{GameState, ConnectedPlayer};
+use persistence;
 
 pub struct Server {
   pub server_id: u32,
   pub name: String,
-  pub gamestate: RwLock<GameState>,
+  pub gamestate: Arc<RwLock<GameState>>,
   pub max_players: usize,
-  rcon_password: String,
-  rcon_port: u32,
   rcon_address: String,
   rcon_conn: Arc<Connection>,
+  persistence_thread: Option<JoinHandle<()>>,
 }
 
 impl Server {
@@ -27,27 +29,57 @@ impl Server {
     Ok(Server {
       server_id: id,
       name: name,
-      gamestate: RwLock::new(GameState::new()),
+      gamestate: Arc::new(RwLock::new(GameState::new())),
       max_players: 32,
-      rcon_password: rcon_password,
       rcon_address: rcon_address,
-      rcon_port: rcon_port,
       rcon_conn: rcon_conn,
+      persistence_thread: None,
     })
   }
 
-  pub fn rcon_init(&mut self) {
+  pub fn init(&mut self) {
     match self.rcon_conn.send_cmd("status") {
-      Ok(status) => self.parse_status(status),
+      Ok(status) => self.parse_status(&status),
       Err(e) => warn!("Error fetching initial state for server {}: {:?}", self.rcon_address, e),
     };
+
+    let state = self.gamestate.clone();
+    let server_id = self.server_id;
+    self.persistence_thread = Some(thread::spawn(move || {
+      loop {
+        thread::sleep(Duration::from_secs(10));
+        let lock = get_read_lock!(state);
+        for player in lock.players.values() {
+          match persistence::get_player(server_id as i32, &player.steamid) {
+            Some(mut db_player) => {
+              db_player.rating = player.rating;
+              db_player.last_name = player.name.clone();
+
+              persistence::update_player(db_player);
+            },
+            None => {
+              persistence::new_player(
+                server_id as i32, 
+                &player.steamid, 
+                &player.name, 
+                player.rating, 
+                player.kills, 
+                player.deaths, 
+                player.headshots,
+                player.accuracy
+              );
+            }
+          }
+        }
+      }
+    }))
   }
 
-  fn parse_status(&mut self, status: String) {
+  pub fn parse_status(&mut self, status: &str) {
     lazy_static! {
       static ref HOSTNAME_RE: Regex = Regex::new(r#"hostname:\s*(.+)"#).unwrap();
       static ref MAXPLAYERS_RE: Regex = Regex::new(r#"players\s*:\s*.*\(([0-9]+)"#).unwrap();
-      static ref PLAYER_RE: Regex = Regex::new(r#"#\s*([0-9]+)\s*[0-9]*\s*".*"\s*([a-zA-Z0-9\-:_]+)"#).unwrap();
+      static ref PLAYER_RE: Regex = Regex::new(r#"#\s*([0-9]+)\s*[0-9]*\s*"(.*)"\s*([a-zA-Z0-9\-:_]+)"#).unwrap();
     }
     for line in status.split("\n") {
       if HOSTNAME_RE.is_match(line) {
@@ -57,12 +89,23 @@ impl Server {
       } else if PLAYER_RE.is_match(line) {
         let m = PLAYER_RE.captures(line).unwrap();
         let uid = m.get(1).map_or("0", |g| g.as_str()).parse::<i32>().unwrap_or(0);
-        let steamid = match m.get(2) {
+        let steamid = match m.get(3) {
           Some(g) => g.as_str(),
           None => "BOT",
         }.to_owned();
+        let name = match m.get(2) {
+          Some(n) => n.as_str(),
+          None => "",
+        }.to_owned();
 
-        get_write_lock!(self.gamestate).players.insert(uid, ConnectedPlayer::new(1000, steamid));
+        if steamid != "BOT" {
+          match persistence::get_player(self.server_id as i32, &steamid) {
+            Some(player) => get_write_lock!(self.gamestate).players.insert(uid, ConnectedPlayer::new(player.rating, steamid, name)),
+            None => get_write_lock!(self.gamestate).players.insert(uid, ConnectedPlayer::new(1000, steamid, name)),
+          };
+        } else {
+          get_write_lock!(self.gamestate).players.insert(uid, ConnectedPlayer::new(1000, steamid, String::new()));
+        }
       }
     }
   }
