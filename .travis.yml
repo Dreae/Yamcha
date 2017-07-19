@@ -1,3 +1,15 @@
 language: rust
 rust:
   - nightly
+services:
+  - postgresql
+before_script:
+  - psql -c 'create database yamcha;' -U postgres
+  - psql -c 'create user yamcha with login password "yamcha_pass"; -U postgres'
+addons:
+  postgresql: "9.4"
+script:
+  - cargo install diesel_cli
+  - diesel migration run
+  - cargo build --verbose
+  - cargo test --verbose
