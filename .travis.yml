@@ -5,7 +5,7 @@ services:
   - postgresql
 before_script:
   - psql -c 'create database yamcha;' -U postgres
-  - psql -c 'create user yamcha with login password "yamcha_pass"; -U postgres'
+  - psql -c 'create user yamcha with login password "yamcha_pass";' -U postgres
 addons:
   postgresql: "9.4"
 script:
