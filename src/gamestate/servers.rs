@@ -39,7 +39,7 @@ impl Server {
 
   pub fn init(&mut self) {
     debug!("Initializing server {}", self.server_id);
-    match self.rcon_conn.send_cmd("status") {
+    match self.rcon_conn.send_cmd_sync("status") {
       Ok(status) => self.parse_status(&status),
       Err(e) => warn!("Error fetching initial state for server {}: {:?}", self.rcon_address, e),
     };

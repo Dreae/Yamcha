@@ -1,4 +1,4 @@
-use models::Player;
+use models::{Player, NewPlayer};
 use middleware::DBConnection;
 use schema::players::{self, dsl};
 use diesel::prelude::*;
@@ -44,7 +44,7 @@ pub fn update_player(player: &Player) {
 
 pub fn new_player(server_id: i32, steam_id: &str, name: &str, rating: i32, kills: u32, deaths: u32, headshots: u32, shots_fired: i64, shots_hit: i64) {
   if let Ok(conn) = DBConnection::new() {
-    let player = Player {
+    let player = NewPlayer {
       rating: rating,
       last_name: name.to_owned(),
       steam_id: steam_id.to_owned(),

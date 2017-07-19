@@ -1,4 +1,5 @@
 CREATE TABLE players (
+  player_id SERIAL PRIMARY KEY,
   steam_id VARCHAR(64) NOT NULL,
   server_id INT NOT NULL,
   last_name VARCHAR(255) NOT NULL,
@@ -8,7 +9,7 @@ CREATE TABLE players (
   kills INT DEFAULT(0) NOT NULL,
   deaths INT DEFAULT(0) NOT NULL,
   headshots INT DEFAULT(0) NOT NULL,
-  PRIMARY KEY (steam_id, server_id),
+  UNIQUE (steam_id, server_id),
   FOREIGN KEY (server_id)
     REFERENCES servers(id)
     ON DELETE CASCADE

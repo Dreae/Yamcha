@@ -123,14 +123,14 @@ impl Connection {
         self._send_cmd(cmd, None);
     }
 
-    pub fn send_cmd(&self, cmd: &str) -> RconResult {
+    pub fn send_cmd_sync(&self, cmd: &str) -> RconResult {
         let res: Arc<Mutex<CallbackResult>> = Arc::new(Mutex::new(CallbackResult {
             inner: Err(RconError::Invalid)
         }));
         
         let handle = thread::current();
         let return_res = res.clone();
-        self.send_cmd_async(cmd, Box::new(move |res| {
+        self.send_cmd(cmd, Box::new(move |res| {
             {
                 lock!(return_res).inner = res;
             }
@@ -153,7 +153,7 @@ impl Connection {
         }
     }
 
-    pub fn send_cmd_async(&self, cmd: &str, cb: Box<RconCallback>) {
+    pub fn send_cmd(&self, cmd: &str, cb: Box<RconCallback>) {
         self._send_cmd(cmd, Some(cb));
     } 
 

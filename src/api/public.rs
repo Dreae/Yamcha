@@ -1,4 +1,4 @@
-use rocket_contrib::JSON;
+use rocket_contrib::Json;
 use std::vec::Vec;
 
 use super::super::SERVERS;
@@ -14,7 +14,7 @@ pub struct ServerSummary {
 }
 
 #[get("/servers")]
-pub fn get_servers() -> JSON<Vec<ServerSummary>> {
+pub fn get_servers() -> Json<Vec<ServerSummary>> {
   let mut server_summaries = Vec::new();
   for (server_id, server) in get_read_lock!(SERVERS).servers.iter() {
     server_summaries.push(ServerSummary {
@@ -26,22 +26,22 @@ pub fn get_servers() -> JSON<Vec<ServerSummary>> {
     });
   }
 
-  JSON(server_summaries)
+  Json(server_summaries)
 }
 
 #[get("/servers/<server_id>")]
-pub fn get_server_details(server_id: u32) -> Option<JSON<Vec<gamestate::ConnectedPlayer>>> {
+pub fn get_server_details(server_id: u32) -> Option<Json<Vec<gamestate::ConnectedPlayer>>> {
   get_read_lock!(SERVERS).get_server_state(server_id).map(|s| {
     let mut connected_players = Vec::new();
     for player in get_read_lock!(s.gamestate).players.values() {
       connected_players.push(player.clone());
     }
 
-    JSON(connected_players)
+    Json(connected_players)
   })
 }
 
 #[get("/servers/<server_id>/players/<uid>")]
-pub fn get_server_active_player(server_id: u32, uid: i32) -> Option<JSON<gamestate::ConnectedPlayer>> {
-    get_read_lock!(SERVERS).get_server_state(server_id).and_then(|server| get_read_lock!(server.gamestate).get_player(uid)).and_then(|p| Some(JSON(p)))
+pub fn get_server_active_player(server_id: u32, uid: i32) -> Option<Json<gamestate::ConnectedPlayer>> {
+    get_read_lock!(SERVERS).get_server_state(server_id).and_then(|server| get_read_lock!(server.gamestate).get_player(uid)).and_then(|p| Some(Json(p)))
 }

@@ -57,6 +57,10 @@ pub fn parse_packet(mut packet: &[u8]) -> Vec<Option<(i32, PacketType, String)>>
         let packet_len = packet.read_i32::<LittleEndian>().unwrap();
         let packet_id = packet.read_i32::<LittleEndian>().unwrap();
         let packet_type = packet.read_i32::<LittleEndian>().unwrap();
+        if packet_len < 10 || packet.len() < packet_len as usize - 8 {
+            warn!("Invalid packet in byte buffer");
+            return packets;
+        }
 
         let body = String::from_utf8_lossy(&packet[0..packet_len as usize - 8]);
 
